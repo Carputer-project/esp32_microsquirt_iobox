@@ -1,0 +1,23 @@
+# PlatformIO build output
+.pio/
+.pioenvs/
+.piodeps/
+
+# Python
+__pycache__/
+*.pyc
+
+# KiCad autosave / cache / lock
+pcb/*-backups/
+pcb/**/*-backups/
+pcb/**/~*
+fp-info-cache
+*.kicad_prl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
