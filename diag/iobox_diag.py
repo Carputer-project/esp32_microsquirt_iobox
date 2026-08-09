@@ -391,10 +391,10 @@ class App:
         else:
             self.send(f"W {key} {self._v(e)}")
 
-    # Board presets: name -> (IAC pin, [O1..O7 pins])
+    # Board presets: name -> (IAC pin, [O1..O7 pins], TFT on)
     PRESETS = {
-        "iobox2": (32, [25, 26, 27, 14, 13, 23, 33]),
-        "iobox3": (19, [13, 12, 14, 27, 26, 25, 33]),
+        "iobox2": (32, [25, 26, 27, 14, 13, 23, 33], True),
+        "iobox3": (19, [13, 12, 14, 27, 26, 25, 33], False),
     }
 
     def _build_pins(self, parent):
@@ -438,6 +438,17 @@ class App:
                            "(boot/console/LED/CAN/dead/input-only).").grid(
             row=1, column=0, columnspan=4, sticky="w", padx=6, pady=2)
 
+        g4 = ttk.LabelFrame(f, text=" Round display (GC9A01A) ")
+        g4.pack(fill="x", pady=6)
+        ttk.Button(g4, text="Enable (P TFT 1)", command=lambda: self.send("P TFT 1")).grid(
+            row=0, column=0, **self._p())
+        ttk.Button(g4, text="Disable (P TFT 0)", command=lambda: self.send("P TFT 0")).grid(
+            row=0, column=1, **self._p())
+        ttk.Label(g4, text="Wired 15/21/22/19. Default OFF — GPIO19 (TFT DC) clashes with "
+                           "iobox3's IAC=19. On a bench dev board move IAC to 32 "
+                           "(iobox2 preset) before enabling.").grid(
+            row=1, column=0, columnspan=4, sticky="w", padx=6, pady=2)
+
         self._pin_preset_fill()
         return f
 
@@ -461,7 +472,7 @@ class App:
 
     def _pin_preset_fill(self):
         name = self.pin_preset.get()
-        iac, outs = self.PRESETS[name]
+        iac, outs, tft = self.PRESETS[name]
         self.pin_iac.delete(0, tk.END)
         self.pin_iac.insert(0, str(iac))
         for n in range(7):

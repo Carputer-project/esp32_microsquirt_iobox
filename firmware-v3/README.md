@@ -1,9 +1,9 @@
 # ESP32 MicroSquirt I/O box v3 (iobox3)
 
-Third-generation I/O box for MicroSquirt/MS2-extra. Same firmware core as iobox2
-(CAN broadcast decode, IAC, fan, outputs, 29-bit responder, EngineProfile warnings,
-0x710 dash broadcast) but **output + IAC pins are runtime-configurable** and stored
-in NVS, so one firmware serves any WROOM-32 board.
+Third-generation I/O box for MicroSquirt/MS2-extra. **Single firmware for every
+board** — iobox2's round display + D1-D3 switches are merged in (opt-in), and
+**output + IAC pins are runtime-configurable** and stored in NVS, so one firmware
+serves any WROOM-32 board.
 
 ## Pin map (default = iobox3 board)
 
@@ -16,14 +16,32 @@ Configurable at runtime (persisted in NVS) via the `P` command or the diag app's
 | O1-O7 (ULN2003A low-side) | 13, 12, 14, 27, 26, 25, 33 | yes (`P O<n> <pin>`) |
 | CAN TX / RX | 5 / 4 | no (compile-time) |
 | Analog A1-A4 | 36, 39, 34, 35 | no (compile-time) |
+| D1-D3 switches (active-low) | 16, 17, 18 | no (compile-time) |
+| Round display (GC9A01A) | 15, 21, 22, 19 | no (compile-time), **opt-in** |
 | Status LED | 2 | no (compile-time) |
 
 Board presets are built into the diag app:
-- **iobox2**: IAC 32, O1-O6 25/26/27/14/13/23 (+ O7 spare 33)
-- **iobox3**: IAC 19, O1-O7 13/12/14/27/26/25/33
+- **iobox2**: IAC 32, O1-O6 25/26/27/14/13/23 (+ O7 spare 33), display **on**
+- **iobox3**: IAC 19, O1-O7 13/12/14/27/26/25/33, display **off**
 
 Changing a pin takes effect immediately (`applyPinConfig()` reconfigures GPIO modes
 and re-attaches LEDC) and survives reboot via NVS.
+
+## Round display + switches (opt-in)
+
+The GC9A01A round gauge (idle duty % center, RPM/TGT/CLT/MODE quadrants, warning
+blink, CAN status bar) and the D1-D3 switch inputs (assignable to any output or
+the fan via `D<n> 0|F|O<k>`) are compiled in but **disabled by default** because
+TFT DC = GPIO19 clashes with iobox3's IAC pin. On a bench dev board (or any board
+wired like iobox2) enable it with:
+
+```
+P IAC 32    # move IAC off GPIO19 (use the iobox2 preset)
+P TFT 1     # enable display (persisted)
+```
+
+`P TFT 0` disables it again. When enabled, switch states ride 0x710 byte 1 and
+the display repaints at 10 Hz.
 
 ## Rejected pins
 
@@ -39,6 +57,7 @@ Everything from iobox2 plus:
 | `P` | report current pin map |
 | `P IAC 19` | set IAC pin |
 | `P O3 27` | set O3 pin |
+| `P TFT 1` / `P TFT 0` | enable / disable round display (persisted) |
 | `P RESET` | restore iobox3 defaults (persisted) |
 
 Full iobox2 command set (F/E/I/T/Y/S/O/A/D/R/W) is unchanged — see
