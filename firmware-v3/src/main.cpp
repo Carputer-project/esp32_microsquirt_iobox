@@ -480,9 +480,12 @@ static void reportStatus() {
                   s_canFresh ? 1 : 0, g_rpm,
                   g_map / 10.0f, g_mat / 10.0f, g_clt / 10.0f,
                   g_tps / 10.0f, g_batt / 10.0f, g_afr / 10.0f);
-    Serial.printf("fan=%d iac=%s duty=%d", g_cfg.fanOut >= 1 && g_cfg.fanOut <= 7 && digitalRead(g_cfg.pin.out[g_cfg.fanOut - 1]) ? 1 : 0,
-                  g_cfg.iacFollow ? "follow" : (g_cfg.iacAuto ? "auto" : "manual"),
+    Serial.printf("fan=%d fanon=%.1fF fanoff=%.1fF fanout=%d", g_cfg.fanOut >= 1 && g_cfg.fanOut <= 7 && digitalRead(g_cfg.pin.out[g_cfg.fanOut - 1]) ? 1 : 0,
+                  g_cfg.fanOnTemp / 10.0f, g_cfg.fanOffTemp / 10.0f, g_cfg.fanOut);
+    Serial.printf(" iac=%s duty=%d", g_cfg.iacFollow ? "follow" : (g_cfg.iacAuto ? "auto" : "manual"),
                   (uint8_t)(ledcRead(0) * 100 / 1023));
+    if (!g_cfg.iacFollow && !g_cfg.iacAuto) Serial.printf(" man=%d", g_cfg.iacManualDuty);
+    Serial.printf(" tgt=%d", g_cfg.iacTargetRpm);
     if (g_cfg.iacFollow) Serial.printf(" iacstep=%d", g_iacStep);
     Serial.printf(" resp=%s id=%u", g_cfg.respEnable ? "on" : "off", g_cfg.respId);
     if (g_cfg.respEnable) {
