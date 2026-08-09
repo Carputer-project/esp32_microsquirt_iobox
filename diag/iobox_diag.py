@@ -44,13 +44,22 @@ class IoBox:
     def connected(self):
         return self._ser is not None or self._sock is not None
 
-    def _reader(self, readline):
+    def _reader(self, readline, timeout_ok):
+        # timeout_ok: a timed-out read just means "no data yet" (serial
+        # returns b'' on timeout; TCP raises socket.timeout). Neither is a
+        # closed link. Only a real error (or EOF on TCP) ends the reader.
         while not self._stop.is_set():
             try:
                 line = readline()
+            except socket.timeout:
+                if timeout_ok:
+                    continue
+                break
             except Exception:
                 break
             if not line:
+                if timeout_ok:
+                    continue
                 break
             self._rx.put(line.decode("latin-1", "replace").rstrip("\r\n"))
         self._rx.put(None)
@@ -63,7 +72,7 @@ class IoBox:
         self._stop.clear()
         self._ser = serial.Serial(port, BAUD, timeout=0.5)
         threading.Thread(target=self._reader,
-                         args=(self._ser.readline,), daemon=True).start()
+                         args=(self._ser.readline, True), daemon=True).start()
 
     def connect_tcp(self, host, port):
         if self.connected:
@@ -71,9 +80,9 @@ class IoBox:
         self._stop.clear()
         self._sock = socket.create_connection((host, port), timeout=5)
         self._sock.settimeout(0.5)
-        f = self._sock.makefile("rb")
-        threading.Thread(target=self._reader, args=(f.readline,),
-                         daemon=True).start()
+        self._tcp_file = self._sock.makefile("rb")
+        threading.Thread(target=self._reader,
+                         args=(self._tcp_file.readline, True), daemon=True).start()
 
     def disconnect(self):
         self._stop.set()
