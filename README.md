@@ -43,7 +43,8 @@ needed, only CAN broadcast settings.
 
 ```
 esp32_microsquirt_iobox/
-├── firmware/            PlatformIO ESP32 firmware (src/main.cpp, platformio.ini)
+├── firmware/            PlatformIO ESP32 firmware — iobox2 (round display + switches)
+├── firmware-v3/         PlatformIO ESP32 firmware — iobox3 (configurable pins, no display)
 ├── pcb/                 KiCad 8 PCB design (iobox2: schematic, board, project)
 ├── diag/                iobox_diag.py — Windows test/configure app (Python + Tkinter)
 └── docs/
@@ -53,28 +54,47 @@ esp32_microsquirt_iobox/
     └── PARTS.md         Parts list with rough prices
 ```
 
+## Two firmware variants
+
+| | `firmware/` (iobox2) | `firmware-v3/` (iobox3) |
+|---|---|---|
+| Board | ESP32 DevKit + breakout, GC9A01A round display + D1-D3 switches | Bare ESP32-WROOM-32 module board, 7" dash on CAN is the HMI |
+| IAC pin | 32 (compile-time) | **runtime-configurable** (`P` command / diag app Pins tab) |
+| Outputs | O1-O6 = 25,26,27,14,13,23 (compile-time) | O1-O7 = 13,12,14,27,26,25,33 default, **runtime-configurable** |
+| Round display | yes | no |
+| Switches | D1-D3 (16,17,18) | none |
+| Use `P`? | no (fixed pins) | yes |
+
+Both share the same core (CAN broadcast decode, fan, IAC, outputs, engine
+profile warnings, 29-bit responder, `0x710` dash broadcast). iobox2 = one build
+for that board; iobox3 = one firmware, pin map set once per board via the
+diag app.
+
 ## Quick start
 
 1. **Build hardware** — see `docs/BUILD.md` (wiring) and `docs/PARTS.md` (parts).
-   The KiCad design in `pcb/` is the current board (`iobox2`); the point-to-point
-   build guide is an alternative for module wiring without a PCB.
-2. **Flash firmware**:
+   The KiCad design in `pcb/` is the iobox2 board; the point-to-point
+   build guide is an alternative for module wiring without a PCB. iobox3 is the
+   bare-module 3×3 board — see `firmware-v3/README.md`.
+2. **Flash firmware** (pick the folder matching your board):
 
    ```sh
-   cd firmware
+   cd firmware        # iobox2  — or:  cd firmware-v3  for iobox3
    pio run                 # build
    pio run --target upload # flash over USB
    pio device monitor -b 115200
    ```
 
    Requires PlatformIO (ESP32 Arduino framework). At the serial prompt type `?`
-   for a live status dump.
+   for a live status dump. On iobox3, type `P` to see the pin map (set it once
+   from the diag app's Pins tab if your board is wired differently).
 3. **Configure the MicroSquirt (one time)** in TunerStudio → CAN Realtime Data
    Broadcasting: **On**, base ID **1520**, rate **20 Hz**, enable groups
    **00** (rpm), **02** (baro/map/mat/clt), **03** (tps/batt/afr), and optionally
    **06** (iacstep) for Follow mode. Details in `docs/OPERATION.md`.
 4. **Use the Windows app** (`diag/iobox_diag.py`) to set fan thresholds, IAC mode,
-   output triggers, input mappings and the 29-bit responder from a GUI.
+   output triggers, input mappings, the 29-bit responder and (iobox3) the pin map
+   from a GUI.
 
 ## Hardware snapshot
 
@@ -106,6 +126,14 @@ feed 12 V into the ESP32 or SN65HVD230 — a 12 V→5 V buck is mandatory.
 | `A1 O2 3.5` / `A2 F 2.0` | analog threshold → output/fan |
 | `Y6` | fan on ULN channel 6 |
 | `R1` / `R0` / `RB5` | 29-bit responder on/off / box ID |
+| `W1` / `W0` | engine profile monitoring on/off |
+| `W idle 650 1000` | idle RPM band (warning below/above, <20% TPS) |
+| `W clt 230` / `W mat 160` | max coolant / intake °F |
+| `W batt 11.0 16.0` / `W map 280` | battery band / max MAP kPa |
+| `W afr 10.0 16.5` | AFR window (below=RICH, above=LEAN) |
+| `W hold 3000` / `W warnout 3` | warn latch ms / blink O3 as check-engine lamp |
+| `P IAC 19` / `P O3 27` | **iobox3 only** — set IAC / output pin |
+| `P RESET` | iobox3 only — restore default pin map |
 | `S` | full command list |
 
 ## CAN at a glance

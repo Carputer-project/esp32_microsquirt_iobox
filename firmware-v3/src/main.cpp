@@ -1,20 +1,9 @@
 #include <Arduino.h>
 #include <driver/twai.h>
 #include <Preferences.h>
-#include <SPI.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_GC9A01A.h>
 
 static constexpr uint8_t PIN_CAN_TX = 5;
 static constexpr uint8_t PIN_CAN_RX = 4;
-
-static constexpr uint8_t PIN_IAC = 32;
-static constexpr uint8_t PIN_O1  = 25;
-static constexpr uint8_t PIN_O2  = 26;
-static constexpr uint8_t PIN_O3  = 27;
-static constexpr uint8_t PIN_O4  = 14;
-static constexpr uint8_t PIN_O5  = 13;
-static constexpr uint8_t PIN_O6  = 23;
 static constexpr uint8_t PIN_LED = 2;
 
 static constexpr uint8_t PIN_A1 = 36;
@@ -22,14 +11,15 @@ static constexpr uint8_t PIN_A2 = 39;
 static constexpr uint8_t PIN_A3 = 34;
 static constexpr uint8_t PIN_A4 = 35;
 
-static constexpr uint8_t PIN_D1 = 16;
-static constexpr uint8_t PIN_D2 = 17;
-static constexpr uint8_t PIN_D3 = 18;
-
-static constexpr uint8_t PIN_TFT_SCLK = 15;
-static constexpr uint8_t PIN_TFT_MOSI = 21;
-static constexpr uint8_t PIN_TFT_CS   = 22;
-static constexpr uint8_t PIN_TFT_DC   = 19;
+// Default pin map (iobox3 / v3 board). Runtime-configurable via 'P' command.
+static constexpr uint8_t PIN_IAC_DEF = 19;
+static constexpr uint8_t PIN_O1_DEF  = 13;
+static constexpr uint8_t PIN_O2_DEF  = 12;
+static constexpr uint8_t PIN_O3_DEF  = 14;
+static constexpr uint8_t PIN_O4_DEF  = 27;
+static constexpr uint8_t PIN_O5_DEF  = 26;
+static constexpr uint8_t PIN_O6_DEF  = 25;
+static constexpr uint8_t PIN_O7_DEF  = 33;
 
 static constexpr uint32_t CAN_BASE_ID = 0x5F0;
 static constexpr uint8_t  CAN_GROUP_COUNT = 9;
@@ -50,9 +40,7 @@ static constexpr uint8_t  MSG_SPND   = 0x82;
 
 static constexpr uint16_t RESP_TABLE_SIZE   = 256;
 static constexpr uint16_t RESP_PORT_OFFSET  = 75;
-static constexpr uint8_t  RESP_PORT_FAN_BIT = 0x40;
-
-static Adafruit_GC9A01A s_tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_MOSI, PIN_TFT_SCLK, -1);
+static constexpr uint8_t  RESP_PORT_FAN_BIT = 0x80;
 
 enum OutMode : uint8_t { OM_OFF = 0, OM_MAN = 1, OM_TEMP = 2, OM_RPM = 3 };
 
@@ -85,10 +73,16 @@ struct EngineProfile {
     uint8_t  warnOut = 0;
 };
 
-static constexpr uint16_t CFG_MAGIC = 0x4959;
+struct PinMap {
+    uint8_t iac = PIN_IAC_DEF;
+    uint8_t out[7] = { PIN_O1_DEF, PIN_O2_DEF, PIN_O3_DEF, PIN_O4_DEF, PIN_O5_DEF, PIN_O6_DEF, PIN_O7_DEF };
+};
+
+static constexpr uint16_t CFG_MAGIC = 0x4961;
 
 struct Cfg {
     uint16_t magic = CFG_MAGIC;
+    PinMap pin;
     int16_t fanOnTemp = 2000;
     int16_t fanOffTemp = 1900;
     bool    fanAuto = true;
@@ -99,11 +93,10 @@ struct Cfg {
     bool    iacFollow = false;
     uint8_t iacManualDuty = 30;
     int16_t shiftRpm = 7000;
-    uint8_t outMode[6] = { OM_RPM, OM_OFF, OM_OFF, OM_OFF, OM_OFF, OM_OFF };
-    int16_t outTemp[6] = { 0, 0, 0, 0, 0, 0 };
-    int16_t outRpm[6]  = { 7000, 0, 0, 0, 0, 0 };
-    bool    outManual[6] = { false, false, false, false, false, false };
-    uint8_t switchOut[3] = { 0, 0, 0 };
+    uint8_t outMode[7] = { OM_RPM, OM_OFF, OM_OFF, OM_OFF, OM_OFF, OM_OFF, OM_OFF };
+    int16_t outTemp[7] = { 0, 0, 0, 0, 0, 0, 0 };
+    int16_t outRpm[7]  = { 7000, 0, 0, 0, 0, 0, 0 };
+    bool    outManual[7] = { false, false, false, false, false, false, false };
     bool    anEnable[4] = { false, false, false, false };
     uint16_t anThresh[4] = { 0, 0, 0, 0 };
     uint8_t anOut[4] = { 0, 0, 0, 0 };
@@ -133,9 +126,7 @@ static bool     s_respPortBaseSet = false;
 static bool     s_respPortsFresh = false;
 static uint32_t s_respLastFrameMs = 0;
 
-static constexpr uint8_t OUT_PINS[6] = { PIN_O1, PIN_O2, PIN_O3, PIN_O4, PIN_O5, PIN_O6 };
 static constexpr uint8_t ADC_PINS[4] = { PIN_A1, PIN_A2, PIN_A3, PIN_A4 };
-static constexpr uint8_t DIG_PINS[3] = { PIN_D1, PIN_D2, PIN_D3 };
 
 static uint16_t rdU16(uint8_t off) { return (uint16_t)((s_outpc[off] << 8) | s_outpc[off + 1]); }
 static int16_t  rdS16(uint8_t off) { return (int16_t)rdU16(off); }
@@ -157,9 +148,9 @@ static uint8_t interpolateIac(int16_t cltF) {
 }
 
 static void setFan(bool on) {
-    if (g_cfg.fanOut >= 1 && g_cfg.fanOut <= 6) digitalWrite(OUT_PINS[g_cfg.fanOut - 1], on ? HIGH : LOW);
+    if (g_cfg.fanOut >= 1 && g_cfg.fanOut <= 7) digitalWrite(g_cfg.pin.out[g_cfg.fanOut - 1], on ? HIGH : LOW);
 }
-static void setOut(uint8_t i, bool on) { digitalWrite(OUT_PINS[i], on ? HIGH : LOW); }
+static void setOut(uint8_t i, bool on) { digitalWrite(g_cfg.pin.out[i], on ? HIGH : LOW); }
 static void setIac(uint8_t duty) { ledcWrite(0, (uint32_t)duty * 1023 / 100); }
 
 static uint16_t readAnalogMv(uint8_t i) {
@@ -189,9 +180,6 @@ static void updateAnalogLatch() {
 
 static bool inputForces(uint8_t target) {
     if (target == 0) return false;
-    for (uint8_t i = 0; i < 3; i++) {
-        if (g_cfg.switchOut[i] == target && digitalRead(DIG_PINS[i]) == LOW) return true;
-    }
     for (uint8_t i = 0; i < 4; i++) {
         if (g_cfg.anOut[i] == target && g_cfg.anEnable[i] && s_anLatch[i]) return true;
     }
@@ -200,10 +188,12 @@ static bool inputForces(uint8_t target) {
 
 static void outputsOff() {
     setFan(false);
-    for (uint8_t i = 0; i < 6; i++) setOut(i, false);
+    for (uint8_t i = 0; i < 7; i++) setOut(i, false);
 }
 
 static void handleCommand(const String& line);
+static bool pinOk(uint8_t p);
+static void applyPinConfig();
 
 struct RespHeader {
     uint16_t offset;
@@ -406,7 +396,7 @@ static void updateOutputs() {
     fanOn = fanOn || inputForces(7);
     setFan(fanOn);
 
-    for (uint8_t i = 0; i < 6; i++) {
+    for (uint8_t i = 0; i < 7; i++) {
         if ((i + 1) == g_cfg.fanOut) continue;
         bool on;
         if (respActive) {
@@ -424,7 +414,7 @@ static void updateOutputs() {
         setOut(i, on);
     }
 
-    if (g_cfg.eng.warnOut >= 1 && g_cfg.eng.warnOut <= 6 &&
+    if (g_cfg.eng.warnOut >= 1 && g_cfg.eng.warnOut <= 7 &&
         g_cfg.eng.warnOut != g_cfg.fanOut && s_warnLatched) {
         bool blink = ((millis() / 500) & 1) == 0;
         setOut(g_cfg.eng.warnOut - 1, blink);
@@ -467,105 +457,10 @@ static void dashBroadcast() {
         if (s_anLatch[i]) m.data[0] |= (uint8_t)(1u << i);
     }
     m.data[1] = 0;
-    for (uint8_t i = 0; i < 3; i++) {
-        if (digitalRead(DIG_PINS[i]) == LOW) m.data[1] |= (uint8_t)(1u << i);
-    }
     static uint8_t seq = 0;
     m.data[2] = ++seq;
     m.data[3] = (uint8_t)(s_warnLatched & 0xFF);
     twai_transmit(&m, 0);
-}
-
-static void drawGaugeFrame() {
-    s_tft.fillScreen(GC9A01A_BLACK);
-    s_tft.drawCircle(120, 120, 119, GC9A01A_NAVY);
-    s_tft.drawCircle(120, 120, 118, GC9A01A_DARKGREY);
-    s_tft.setTextColor(GC9A01A_CYAN);
-    s_tft.setTextSize(2);
-    s_tft.setCursor(96, 20);
-    s_tft.print("IDLE");
-    s_tft.setTextColor(GC9A01A_LIGHTGREY);
-    s_tft.setTextSize(1);
-    s_tft.setCursor(20, 130); s_tft.print("RPM");
-    s_tft.setCursor(128, 130); s_tft.print("TGT");
-    s_tft.setCursor(20, 168); s_tft.print("CLT");
-    s_tft.setCursor(128, 168); s_tft.print("MODE");
-}
-
-static char s_lastDuty[8] = "";
-static char s_lastRpm[8] = "";
-static char s_lastTgt[8] = "";
-static char s_lastClt[8] = "";
-static char s_lastMode[8] = "";
-static char s_lastStat[24] = "";
-static char s_lastWarn[12] = "";
-
-static void drawValue(int16_t x, int16_t y, uint8_t size, uint16_t color,
-                      uint16_t clearW, char* last, const char* s) {
-    if (strcmp(last, s) == 0) return;
-    strcpy(last, s);
-    s_tft.fillRect(x, y - 2, clearW, size * 8 + 4, GC9A01A_BLACK);
-    s_tft.setCursor(x, y);
-    s_tft.setTextSize(size);
-    s_tft.setTextColor(color);
-    s_tft.print(s);
-}
-
-static void updateDisplay() {
-    char buf[12];
-
-    uint8_t duty = (uint8_t)(ledcRead(0) * 100 / 1023);
-    snprintf(buf, sizeof buf, "%u%%", duty);
-    drawValue(48, 48, 6, GC9A01A_CYAN, 144, s_lastDuty, buf);
-
-    snprintf(buf, sizeof buf, "%u", s_canFresh ? g_rpm : 0);
-    drawValue(20, 146, 2, s_canFresh ? GC9A01A_WHITE : GC9A01A_DARKGREY, 100, s_lastRpm, buf);
-
-    snprintf(buf, sizeof buf, "%d", (int)g_cfg.iacTargetRpm);
-    drawValue(128, 146, 2, GC9A01A_YELLOW, 100, s_lastTgt, buf);
-
-    bool cltOk = s_groupSeen[2] && g_clt > 100 && g_clt < 3500;
-    snprintf(buf, sizeof buf, cltOk ? "%dF" : "--", g_clt / 10);
-    drawValue(20, 184, 2, cltOk ? GC9A01A_YELLOW : GC9A01A_DARKGREY, 100, s_lastClt, buf);
-
-    bool respActive = g_cfg.respEnable && s_respPortsFresh &&
-                      (millis() - s_respLastFrameMs) < FAILSAFE_MS;
-    const char* mode = respActive ? "RMT" : (g_cfg.iacFollow ? "FOLLOW" : (g_cfg.iacAuto ? "AUTO" : "MAN"));
-    snprintf(buf, sizeof buf, "%s", mode);
-    drawValue(128, 184, 2, respActive ? GC9A01A_MAGENTA : GC9A01A_GREEN, 100, s_lastMode, buf);
-
-    const char* warn = s_warnLatched ? topWarnName(s_warnLatched) : "";
-    if (strcmp(s_lastWarn, warn)) {
-        strcpy(s_lastWarn, warn);
-        s_tft.fillRect(10, 202, 220, 10, GC9A01A_BLACK);
-        if (s_warnLatched) {
-            bool blink = ((millis() / 500) & 1) == 0;
-            s_tft.setCursor(10, 202);
-            s_tft.setTextSize(1);
-            s_tft.setTextColor(blink ? GC9A01A_RED : GC9A01A_DARKGREY);
-            s_tft.print(warn);
-        }
-    }
-
-    uint16_t sc;
-    if (!s_canFresh) {
-        sc = GC9A01A_RED;
-        snprintf(buf, sizeof buf, "CAN LOST");
-    } else if (g_cfg.fanOut >= 1 && g_cfg.fanOut <= 6 && digitalRead(OUT_PINS[g_cfg.fanOut - 1])) {
-        sc = GC9A01A_GREEN;
-        snprintf(buf, sizeof buf, "FAN ON  CAN OK");
-    } else {
-        sc = GC9A01A_LIGHTGREY;
-        snprintf(buf, sizeof buf, "FAN OFF  CAN OK");
-    }
-    if (strcmp(s_lastStat, buf)) {
-        strcpy(s_lastStat, buf);
-        s_tft.fillRect(60, 212, 120, 10, GC9A01A_BLACK);
-        s_tft.setCursor(60, 212);
-        s_tft.setTextSize(1);
-        s_tft.setTextColor(sc);
-        s_tft.print(buf);
-    }
 }
 
 static void saveCfg() {
@@ -585,7 +480,7 @@ static void reportStatus() {
                   s_canFresh ? 1 : 0, g_rpm,
                   g_map / 10.0f, g_mat / 10.0f, g_clt / 10.0f,
                   g_tps / 10.0f, g_batt / 10.0f, g_afr / 10.0f);
-    Serial.printf("fan=%d iac=%s duty=%d", g_cfg.fanOut >= 1 && g_cfg.fanOut <= 6 && digitalRead(OUT_PINS[g_cfg.fanOut - 1]) ? 1 : 0,
+    Serial.printf("fan=%d iac=%s duty=%d", g_cfg.fanOut >= 1 && g_cfg.fanOut <= 7 && digitalRead(g_cfg.pin.out[g_cfg.fanOut - 1]) ? 1 : 0,
                   g_cfg.iacFollow ? "follow" : (g_cfg.iacAuto ? "auto" : "manual"),
                   (uint8_t)(ledcRead(0) * 100 / 1023));
     if (g_cfg.iacFollow) Serial.printf(" iacstep=%d", g_iacStep);
@@ -594,13 +489,10 @@ static void reportStatus() {
         bool fresh = s_respPortsFresh && (millis() - s_respLastFrameMs) < FAILSAFE_MS;
         Serial.printf(" ports=%s base=%u", fresh ? "fresh" : (s_respPortsFresh ? "stale" : "idle"), s_respPortBase);
     }
-    for (uint8_t i = 0; i < 6; i++) Serial.printf(" o%u=%d", i + 1, digitalRead(OUT_PINS[i]) ? 1 : 0);
+    for (uint8_t i = 0; i < 7; i++) Serial.printf(" o%u=%d", i + 1, digitalRead(g_cfg.pin.out[i]) ? 1 : 0);
     Serial.println();
     for (uint8_t i = 0; i < 4; i++) {
         Serial.printf("a%u=%.2fV(%s) ", i + 1, readAnalogMv(i) / 1000.0f, tgtName(g_cfg.anOut[i]));
-    }
-    for (uint8_t i = 0; i < 3; i++) {
-        Serial.printf("d%u=%d(%s) ", i + 1, digitalRead(DIG_PINS[i]) ? 0 : 1, tgtName(g_cfg.switchOut[i]));
     }
     Serial.println();
     if (g_cfg.eng.enabled) {
@@ -667,7 +559,7 @@ static void handleCommand(const String& line) {
         }
         case 'Y': {
             int k = val.toInt();
-            if (k >= 0 && k <= 6) {
+            if (k >= 0 && k <= 7) {
                 g_cfg.fanOut = (uint8_t)k;
                 if (k > 0) setFan(false);
             }
@@ -697,7 +589,7 @@ static void handleCommand(const String& line) {
         case 'O': {
             if (val.length() < 2) return;
             uint8_t n = (uint8_t)(val[0] - '1');
-            if (n > 5) return;
+            if (n > 6) return;
             String mode = val.substring(1);
             mode.trim();
             if (mode == "0") { g_cfg.outMode[n] = OM_OFF; }
@@ -716,21 +608,6 @@ static void handleCommand(const String& line) {
             saveCfg();
             break;
         }
-        case 'D': {
-            if (val.length() < 2) return;
-            uint8_t n = (uint8_t)(val[0] - '1');
-            if (n > 2) return;
-            String m = val.substring(1);
-            m.trim();
-            if (m == "0" || m == "N" || m == "A") g_cfg.switchOut[n] = 0;
-            else if (m == "F") g_cfg.switchOut[n] = 7;
-            else if (m.length() >= 2 && m[0] == 'O') {
-                uint8_t o = (uint8_t)(m[1] - '1');
-                if (o <= 5) g_cfg.switchOut[n] = o + 1;
-            }
-            saveCfg();
-            break;
-        }
         case 'A': {
             if (val.length() < 2) return;
             uint8_t n = (uint8_t)(val[0] - '1');
@@ -741,7 +618,7 @@ static void handleCommand(const String& line) {
                 g_cfg.anEnable[n] = false;
             } else if (m.startsWith("O")) {
                 uint8_t o = (uint8_t)(m[1] - '1');
-                if (o <= 5) {
+                if (o <= 6) {
                     g_cfg.anOut[n] = o + 1;
                     g_cfg.anEnable[n] = true;
                     float v = m.substring(2).toFloat();
@@ -760,6 +637,45 @@ static void handleCommand(const String& line) {
                 }
             }
             saveCfg();
+            break;
+        }
+        case 'P': {
+            // P              -> report map
+            // P IAC <pin>    -> set IAC pin
+            // P O<n> <pin>   -> set output n pin (1-7)
+            // P RESET        -> back to iobox3 defaults
+            if (val.length() == 0) {
+                Serial.printf("pins iac=%u o1=%u o2=%u o3=%u o4=%u o5=%u o6=%u o7=%u\n",
+                              g_cfg.pin.iac, g_cfg.pin.out[0], g_cfg.pin.out[1], g_cfg.pin.out[2],
+                              g_cfg.pin.out[3], g_cfg.pin.out[4], g_cfg.pin.out[5], g_cfg.pin.out[6]);
+                break;
+            }
+            if (val == "RESET") {
+                g_cfg.pin = PinMap{};
+                saveCfg();
+                applyPinConfig();
+                Serial.println("pin map reset to iobox3 defaults");
+                break;
+            }
+            int sp = val.indexOf(' ');
+            if (sp <= 0) { Serial.println("P IAC <pin> | P O<n> <pin> | P RESET"); break; }
+            String k = val.substring(0, sp);
+            int pin = val.substring(sp + 1).toInt();
+            k.trim();
+            if (!pinOk(pin)) { Serial.println("pin rejected: unusable on WROOM-32"); break; }
+            if (k == "IAC") {
+                g_cfg.pin.iac = (uint8_t)pin;
+            } else if (k.length() == 2 && k[0] == 'O') {
+                uint8_t n = (uint8_t)(k[1] - '1');
+                if (n <= 6) g_cfg.pin.out[n] = (uint8_t)pin;
+                else { Serial.println("P O<n> <pin>, n=1..7"); break; }
+            } else {
+                Serial.println("P IAC <pin> | P O<n> <pin> | P RESET");
+                break;
+            }
+            saveCfg();
+            applyPinConfig();
+            Serial.println("pin map updated");
             break;
         }
         case 'W': {
@@ -793,12 +709,12 @@ static void handleCommand(const String& line) {
             } else if (k == "hold" && p1.length() > 0) {
                 g_cfg.eng.warnHoldMs = (uint16_t)constrain(p1.toInt(), 0, 60000);
             } else if (k == "warnout" && p1.length() > 0) {
-                g_cfg.eng.warnOut = (uint8_t)constrain(p1.toInt(), 0, 6);
+                g_cfg.eng.warnOut = (uint8_t)constrain(p1.toInt(), 0, 7);
             } else if (k == "help") {
-                Serial.println("W[0|1] | W idle <min> <max> | W maxrpm <rpm> | W clt <F> | W mat <F> | W batt <min> <max> | W map <kPa> | W afr <min> <max> | W hold <ms> | W warnout <0-6>");
+                Serial.println("W[0|1] | W idle <min> <max> | W maxrpm <rpm> | W clt <F> | W mat <F> | W batt <min> <max> | W map <kPa> | W afr <min> <max> | W hold <ms> | W warnout <0-7>");
                 break;
             } else {
-                Serial.println("W[0|1] | W idle <min> <max> | W maxrpm <rpm> | W clt <F> | W mat <F> | W batt <min> <max> | W map <kPa> | W afr <min> <max> | W hold <ms> | W warnout <0-6>");
+                Serial.println("W[0|1] | W idle <min> <max> | W maxrpm <rpm> | W clt <F> | W mat <F> | W batt <min> <max> | W map <kPa> | W afr <min> <max> | W hold <ms> | W warnout <0-7>");
                 break;
             }
             saveCfg();
@@ -806,36 +722,45 @@ static void handleCommand(const String& line) {
             break;
         }
         default:
-            Serial.println("commands: ? | F[onTempF|A|1|0] | E[offTempF] | I[duty|A|F] | T[targetRpm] | Y[fanOut 1-6|0] | S[shiftRpm] | O<n>[0|1|T<f>|R<rpm>] | D<n>[0|F|O<k>] | A<n>[0|O<k> <v>|F <v>|<v>] | R[0|1|B<id>] | W[0|1|idle|maxrpm|clt|mat|batt|map|afr|hold|warnout|help]");
+            Serial.println("commands: ? | P[IAC <pin>|O<n> <pin>|RESET] | F[onTempF|A|1|0] | E[offTempF] | I[duty|A|F] | T[targetRpm] | Y[fanOut 1-7|0] | S[shiftRpm] | O<n>[0|1|T<f>|R<rpm>] | A<n>[0|O<k> <v>|F <v>|<v>] | R[0|1|B<id>] | W[0|1|idle|maxrpm|clt|mat|batt|map|afr|hold|warnout|help]");
             break;
     }
+}
+
+static bool pinOk(uint8_t p) {
+    if (p == 0 || p == 1 || p == 3) return false;          // boot strap / UART0 console
+    if (p == 2) return false;                               // onboard LED
+    if (p == 4 || p == 5) return false;                     // CAN TX/RX
+    if (p >= 6 && p <= 11) return false;                    // flash pins / dead
+    if (p == 20 || p == 24) return false;                   // dead
+    if (p >= 28 && p <= 31) return false;                   // dead
+    if (p == 34 || p == 35 || p == 36 || p == 39) return false; // input-only
+    return p <= 39;
+}
+
+static void applyPinConfig() {
+    pinMode(PIN_LED, OUTPUT);
+    for (uint8_t i = 0; i < 7; i++) pinMode(g_cfg.pin.out[i], OUTPUT);
+    ledcDetachPin(g_cfg.pin.iac);
+    ledcSetup(0, 30, 10);
+    ledcAttachPin(g_cfg.pin.iac, 0);
+    outputsOff();
+    setIac(0);
 }
 
 void setup() {
     Serial.begin(115200);
     delay(200);
 
-    s_tft.begin();
-    s_tft.setRotation(0);
-    s_tft.fillScreen(GC9A01A_BLACK);
-    drawGaugeFrame();
-
     g_prefs.begin(kPrefsName, false);
     loadCfg();
 
-    for (uint8_t i = 0; i < 6; i++) pinMode(OUT_PINS[i], OUTPUT);
-    pinMode(PIN_LED, OUTPUT);
-    outputsOff();
-    setIac(0);
+    applyPinConfig();
 
     for (uint8_t i = 0; i < 4; i++) {
         pinMode(ADC_PINS[i], INPUT);
         analogSetPinAttenuation(ADC_PINS[i], ADC_11db);
     }
-    for (uint8_t i = 0; i < 3; i++) pinMode(DIG_PINS[i], INPUT_PULLUP);
-
-    ledcSetup(0, 30, 10);
-    ledcAttachPin(PIN_IAC, 0);
 
     twai_general_config_t gen = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)PIN_CAN_TX, (gpio_num_t)PIN_CAN_RX, TWAI_MODE_NORMAL);
     twai_timing_config_t  tim = TWAI_TIMING_CONFIG_500KBITS();
@@ -851,7 +776,7 @@ void setup() {
         Serial.println("TWAI install FAILED");
     }
 
-    Serial.println("MS2/Extra I/O box ready. Type ? for status.");
+    Serial.println("MS2/Extra I/O box v3 (iobox3) ready. Type ? for status.");
 }
 
 void loop() {
@@ -870,12 +795,6 @@ void loop() {
     if (now - ledLast >= period) {
         ledLast = now;
         digitalWrite(PIN_LED, !digitalRead(PIN_LED));
-    }
-
-    static uint32_t tftLast = 0;
-    if (now - tftLast >= 100) {
-        tftLast = now;
-        updateDisplay();
     }
 
     static uint32_t dashLast = 0;

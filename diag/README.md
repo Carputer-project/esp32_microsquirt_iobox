@@ -19,10 +19,12 @@ No Qt needed. Works on Windows too (uses `python`, `pip`).
 
 | Tab | Purpose |
 |-----|---------|
-| Fan | auto / manual on-off, on-threshold (°F), off-threshold (°F), output channel (`Y1-6`) |
+| Fan | auto / manual on-off, on-threshold (°F), off-threshold (°F), output channel (`Y1-7`) |
 | IAC | auto / follow-ECU / manual duty, target idle rpm |
-| Outputs | per-output manual on/off, temp trigger, rpm trigger |
+| Outputs | per-output manual on/off, temp trigger, rpm trigger (O1-O7) |
 | Inputs | D1-D3 switch → target mapping, A1-A4 analog → target + threshold volts |
+| Engine | engine-profile limits grid (idle/maxrpm/clt/mat/batt/map/afr/hold/warnout) |
+| Pins | **IAC + output GPIO map** — board presets (iobox2 / iobox3), edit, apply (`P` cmds), read from box |
 | Advanced | 29-bit CAN responder enable/disable/box-ID, shift-light rpm |
 | Console | raw command line, `?` status button, scrolling RX log |
 

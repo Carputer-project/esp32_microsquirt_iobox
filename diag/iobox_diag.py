@@ -180,11 +180,15 @@ class App:
         self._tab_iac = self._build_iac(nb)
         self._tab_out = self._build_outputs(nb)
         self._tab_in = self._build_inputs(nb)
+        self._tab_eng = self._build_engine(nb)
+        self._tab_pins = self._build_pins(nb)
         self._tab_adv = self._build_advanced(nb)
         nb.add(self._tab_fan, text=" Fan ")
         nb.add(self._tab_iac, text=" IAC ")
         nb.add(self._tab_out, text=" Outputs ")
         nb.add(self._tab_in, text=" Inputs ")
+        nb.add(self._tab_eng, text=" Engine ")
+        nb.add(self._tab_pins, text=" Pins ")
         nb.add(self._tab_adv, text=" Advanced ")
 
         # Console
@@ -229,8 +233,8 @@ class App:
 
         g3 = ttk.LabelFrame(f, text=" Output channel ")
         g3.pack(fill="x")
-        ttk.Label(g3, text="Fan drives ULN OUT (1-6, 0=off):").grid(row=0, column=0, sticky="e")
-        self.fan_out = ttk.Combobox(g3, width=4, values=["0", "1", "2", "3", "4", "5", "6"], state="readonly")
+        ttk.Label(g3, text="Fan drives ULN OUT (1-7, 0=off):").grid(row=0, column=0, sticky="e")
+        self.fan_out = ttk.Combobox(g3, width=4, values=["0", "1", "2", "3", "4", "5", "6", "7"], state="readonly")
         self.fan_out.set("6")
         self.fan_out.grid(row=0, column=1)
         ttk.Button(g3, text="Set (Y)", command=lambda: self.send(f"Y{self.fan_out.get()}")).grid(row=0, column=2, **self._p())
@@ -265,7 +269,7 @@ class App:
         for i, h in enumerate(["OUT", "On", "Off", "Temp °F", "Set", "RPM", "Set"]):
             ttk.Label(hdr, text=h, width=8).grid(row=0, column=i, padx=2)
         self.out_rows = []
-        for n in range(1, 7):
+        for n in range(1, 8):
             row = ttk.Frame(f)
             row.pack(fill="x", pady=1)
             ttk.Label(row, text=f"O{n}", width=8).grid(row=0, column=0, padx=2)
@@ -289,7 +293,7 @@ class App:
 
     def _build_inputs(self, parent):
         f = ttk.Frame(parent, padding=10)
-        targets = ["0"] + [f"O{i}" for i in range(1, 7)] + ["F"]
+        targets = ["0"] + [f"O{i}" for i in range(1, 8)] + ["F"]
 
         g = ttk.LabelFrame(f, text=" Switches D1-D3 (ground, active-low) ")
         g.pack(fill="x")
@@ -322,6 +326,149 @@ class App:
                        command=lambda n=n, c=cb, v=tv: self._set_analog(n, c.get(), v.get())).grid(row=0, column=5, padx=4)
             self.an_rows.append((cb, tv))
         return f
+
+    def _build_engine(self, parent):
+        f = ttk.Frame(parent, padding=10)
+
+        g = ttk.LabelFrame(f, text=" Engine profile monitoring ")
+        g.pack(fill="x")
+        ttk.Label(g, text="Warns when live CAN values go outside these limits; "
+                          "top warning blinks on the screen + optional output.").grid(
+            row=0, column=0, columnspan=6, sticky="w", padx=6, pady=2)
+        ttk.Button(g, text="Enable (W1)", command=lambda: self.send("W1")).grid(row=1, column=0, **self._p())
+        ttk.Button(g, text="Disable (W0)", command=lambda: self.send("W0")).grid(row=1, column=1, **self._p())
+
+        rows = [
+            ("Idle RPM min", "idle", ["700", "1100"], "idle <min> <max>"),
+            ("Max RPM", "maxrpm", ["8000"], "maxrpm <rpm>"),
+            ("Coolant max °F", "clt", ["230"], "clt <F>"),
+            ("Intake max °F", "mat", ["160"], "mat <F>"),
+            ("Battery min/max V", "batt", ["11.0", "16.0"], "batt <min> <max>"),
+            ("Boost max kPa", "map", ["280"], "map <kPa>"),
+            ("AFR min/max", "afr", ["10.0", "16.5"], "afr <min> <max>"),
+            ("Warning hold ms", "hold", ["3000"], "hold <ms>"),
+            ("Warn output (0-7)", "warnout", ["0"], "warnout <0-7>"),
+        ]
+        g2 = ttk.LabelFrame(f, text=" Limits ")
+        g2.pack(fill="x", pady=6)
+        self.eng_rows = []
+        for r, (label, key, defs, _hint) in enumerate(rows):
+            ttk.Label(g2, text=f"{label}:").grid(row=r, column=0, sticky="e", padx=6, pady=2)
+            entry = ttk.Entry(g2, width=8)
+            entry.insert(0, defs[0])
+            entry.grid(row=r, column=1, padx=2)
+            second = None
+            if len(defs) == 2:
+                ttk.Label(g2, text="to").grid(row=r, column=2)
+                second = ttk.Entry(g2, width=8)
+                second.insert(0, defs[1])
+                second.grid(row=r, column=3, padx=2)
+            ttk.Button(g2, text="Set", width=5,
+                       command=lambda key=key, e=entry, s=second: self._set_engine(key, e, s)).grid(
+                row=r, column=4, padx=6)
+            self.eng_rows.append((entry, second))
+
+        g3 = ttk.LabelFrame(f, text=" Warning output behavior ")
+        g3.pack(fill="x")
+        ttk.Label(g3, text="The warn output blinks (2 Hz) while a warning is active; "
+                           "clears after the hold time once conditions return to spec.").pack(anchor="w", padx=6, pady=2)
+        return f
+
+    def _set_engine(self, key, e, second):
+        if key in ("idle", "batt", "afr"):
+            if second is None:
+                return
+            self.send(f"W {key} {self._v(e)} {self._v(second)}")
+        else:
+            self.send(f"W {key} {self._v(e)}")
+
+    # Board presets: name -> (IAC pin, [O1..O7 pins])
+    PRESETS = {
+        "iobox2": (32, [25, 26, 27, 14, 13, 23, 33]),
+        "iobox3": (19, [13, 12, 14, 27, 26, 25, 33]),
+    }
+
+    def _build_pins(self, parent):
+        f = ttk.Frame(parent, padding=10)
+        ttk.Label(f, text="Output + IAC GPIO map (stored in box NVS; CAN/analog/LED are "
+                          "compile-time). Set per board once, then forget.").pack(anchor="w")
+
+        g = ttk.LabelFrame(f, text=" Board preset ")
+        g.pack(fill="x", pady=6)
+        ttk.Label(g, text="Load preset:").grid(row=0, column=0, sticky="e", padx=6)
+        self.pin_preset = ttk.Combobox(g, width=12, values=list(self.PRESETS),
+                                       state="readonly")
+        self.pin_preset.set("iobox3")
+        self.pin_preset.grid(row=0, column=1, padx=6)
+        ttk.Button(g, text="Fill fields", command=self._pin_preset_fill).grid(
+            row=0, column=2, padx=6)
+        ttk.Label(g, text="Then edit the pin fields below and press Apply.").grid(
+            row=1, column=0, columnspan=4, sticky="w", padx=6, pady=2)
+
+        g2 = ttk.LabelFrame(f, text=" Pin map ")
+        g2.pack(fill="x")
+        self.pin_iac = ttk.Entry(g2, width=5)
+        self.pin_out = []
+        for n in range(1, 8):
+            ttk.Label(g2, text=f"O{n} GPIO:").grid(row=n, column=0, sticky="e", padx=6, pady=2)
+            e = ttk.Entry(g2, width=5)
+            e.grid(row=n, column=1, padx=2)
+            self.pin_out.append(e)
+        ttk.Label(g2, text="IAC GPIO:").grid(row=0, column=0, sticky="e", padx=6, pady=2)
+        self.pin_iac.grid(row=0, column=1, padx=2)
+
+        g3 = ttk.LabelFrame(f, text=" Actions ")
+        g3.pack(fill="x", pady=6)
+        ttk.Button(g3, text="Apply to box (P)", command=self._pin_apply).grid(
+            row=0, column=0, **self._p())
+        ttk.Button(g3, text="Read from box (P)", command=lambda: self.send("P")).grid(
+            row=0, column=1, **self._p())
+        ttk.Button(g3, text="Reset to iobox3 defaults (P RESET)",
+                   command=lambda: self.send("P RESET")).grid(row=0, column=2, **self._p())
+        ttk.Label(g3, text="Pins the box rejects: 0,1,2,3,4,5,6-11,20,24,28-31,34,35,36,39 "
+                           "(boot/console/LED/CAN/dead/input-only).").grid(
+            row=1, column=0, columnspan=4, sticky="w", padx=6, pady=2)
+
+        self._pin_preset_fill()
+        return f
+
+    def _parse_pins(self, line):
+        # matches: pins iac=19 o1=13 o2=12 ... o7=33
+        if not line.startswith("pins iac="):
+            return
+        try:
+            parts = line.split()
+            iac = int(parts[1].split("=")[1])
+            outs = [int(p.split("=")[1]) for p in parts[2:9]]
+        except (IndexError, ValueError):
+            return
+        if len(outs) != 7:
+            return
+        self.pin_iac.delete(0, tk.END)
+        self.pin_iac.insert(0, str(iac))
+        for n in range(7):
+            self.pin_out[n].delete(0, tk.END)
+            self.pin_out[n].insert(0, str(outs[n]))
+
+    def _pin_preset_fill(self):
+        name = self.pin_preset.get()
+        iac, outs = self.PRESETS[name]
+        self.pin_iac.delete(0, tk.END)
+        self.pin_iac.insert(0, str(iac))
+        for n in range(7):
+            self.pin_out[n].delete(0, tk.END)
+            self.pin_out[n].insert(0, str(outs[n]))
+
+    def _pin_apply(self):
+        try:
+            iac = int(self.pin_iac.get().strip())
+            outs = [int(e.get().strip()) for e in self.pin_out]
+        except ValueError:
+            messagebox.showwarning("Pin map", "All pin fields must be integers.")
+            return
+        self.send(f"P IAC {iac}")
+        for n, pin in enumerate(outs):
+            self.send(f"P O{n + 1} {pin}")
 
     def _build_advanced(self, parent):
         f = ttk.Frame(parent, padding=10)
@@ -429,6 +576,7 @@ class App:
 
     def on_line(self, line):
         self._log(f"< {line}")
+        self._parse_pins(line)
 
     def _log(self, text):
         self.console.configure(state="normal")
