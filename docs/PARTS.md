@@ -53,7 +53,6 @@ other end (2-node bus). Keep it ON.
 | 25,26,27,14,13,23 | O1-O6 → ULN2003A inputs (O6 = fan by default) |
 | 2 | status LED (onboard) |
 | 36,39,34,35 | A1-A4 analog (via 10k/20k divider) |
-| 16,17,18 | D1-D3 switch inputs (internal pull-up, active-low to GND) |
 | 15,21,22,19 | GC9A01 display SCLK/MOSI/CS/DC |
 
 ### MOSFET stage (IAC — ×1)
@@ -79,10 +78,10 @@ sensor signal (0-5V) → 10kΩ → GPIO
 optional 0.1µF cap: GPIO → GND
 ```
 
-### Switches (×3)
-```
-GPIO → switch → GND   (use built-in INPUT_PULLUP, no resistor)
-```
+### Switches
+
+None — D1-D3 switch inputs were removed from the firmware. GPIOs 16/17/18 are
+unused on the board.
 
 ### Power
 ```

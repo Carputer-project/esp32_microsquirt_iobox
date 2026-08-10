@@ -46,7 +46,6 @@ buck) wires directly to it.
       │  │     fan = ULN channel (default O6/GPIO23, Y<k> command to change)
       ├── GPIO2  → status LED (onboard)
       ├── GPIO36,39,34,35 → A1-A4 (0-5V via 10k/20k divider)
-      ├── GPIO16,17,18 → D1-D3 switches (to GND, INPUT_PULLUP)
       └── GPIO15,21,22,19 → GC9A01 round display (SCLK, MOSI, CS, DC)
 ```
 
@@ -148,13 +147,10 @@ optional 0.1µF cap: GPIO ── GND
 same divider for A2/A3/A4 → GPIO39/34/35
 ```
 
-### 2.7 Switch inputs (×3) — active low
+### 2.7 Analog inputs (A1-A4) — see §2.9 pin table
 
-```
-GPIO16 ── D1 switch ── GND   (INPUT_PULLUP internal)
-GPIO17 ── D2 switch ── GND
-GPIO18 ── D3 switch ── GND
-```
+The box has no switch inputs (D1–D3 removed from firmware). All four GPIO pins
+that formerly served switches are unused/available.
 
 ### 2.8 Round display (GC9A01A 240×240) — 4-wire SPI
 
@@ -168,8 +164,7 @@ display RST ── 3V3 (tied high; reset handled at power-up)
 Software SPI via the Adafruit GC9A01A library (hardware SPI pins 15/21/22/19 are in
 use by other channels). Renders an idle-control gauge: big IAC duty %, actual RPM /
 target RPM / CLT / idle mode (AUTO·FOLLOW·MAN), and a bottom fan + CAN status line
-(red "CAN LOST" on fail-safe). D4's old pin (GPIO19) became the display DC line —
-switch inputs are now D1-D3.
+(red "CAN LOST" on fail-safe).
 
 ### 2.9 Status LED
 
@@ -198,7 +193,6 @@ GPIO2 ── onboard LED (CAN heartbeat)   [no wiring needed]
 | 22 | Display CS | GC9A01 round display |
 | 19 | Display DC | GC9A01 round display |
 | 36,39,34,35 | A1-A4 analog 0-5V | via 10k/20k divider to 3.3V |
-| 16,17,18 | D1-D3 switches | INPUT_PULLUP, active-low |
 
 ---
 
@@ -255,9 +249,8 @@ GPIO2 ── onboard LED (CAN heartbeat)   [no wiring needed]
 3. MOSFET stage: IRLZ44N + gate pull-down + flyback diode (IAC only)
 4. ULN2003A: COM to +12V, wire O1-O6 (+ fan on its channel)
 5. Analog dividers A1-A4 + caps
-6. Switch inputs D1-D3
-7. Round display: SCL→15, SDA→21, CS→22, DC→19, RST→3V3
-8. Flash firmware, bench-test with CAN sniffer, then install
+6. Round display: SCL→15, SDA→21, CS→22, DC→19, RST→3V3
+7. Flash firmware, bench-test with CAN sniffer, then install
 
 ## 6. TunerStudio setup (one-time, on the MicroSquirt)
 

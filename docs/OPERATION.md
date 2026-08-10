@@ -105,15 +105,7 @@ Input-forced overrides apply on top of any mode (see §5).
 
 ## 5. Inputs drive outputs
 
-### 5.1 Switch inputs D1–D3 (active-low, internal pull-up)
-
-| Command | Meaning |
-|---------|---------|
-| `D1 O2` | D1 grounded → force O2 on |
-| `D2 F` | D2 grounded → force fan on |
-| `D3 0` | clear D3 assignment |
-
-### 5.2 Analog inputs A1–A4 (0-5 V, 0.15 V hysteresis)
+### 5.1 Analog inputs A1–A4 (0-5 V, 0.15 V hysteresis)
 
 | Command | Meaning |
 |---------|---------|
@@ -127,6 +119,8 @@ chatter. **On the iobox2 PCB these four inputs are wired to 12 V→3.3 V divider
 for the dash indicator signals — set the thresholds from what the diag app reads
 (see `PROTOCOL.md` §4 for the 0x710 frame and divider values).
 
+(Switch inputs D1–D3 were removed from the firmware.)
+
 ## 6. Display (GC9A01A round 240×240)
 
 Idle-control focused, refreshed at 10 Hz:
@@ -137,8 +131,7 @@ Idle-control focused, refreshed at 10 Hz:
 - **Bottom line**: `FAN ON/OFF  CAN OK` (green/light-grey) or `CAN LOST` (red).
 - RMT mode (29-bit remote driving the ports) shows magenta.
 
-Pin map: SCL→15, MOSI/SDA→21, CS→22, DC→19, RST→3V3, VCC→5V. (D4's old pin
-GPIO19 became the display DC line — switch inputs are D1–D3.)
+Pin map: SCL→15, MOSI/SDA→21, CS→22, DC→19, RST→3V3, VCC→5V.
 
 ## 7. 29-bit CAN responder (MS2/Extra remote ports)
 
@@ -174,7 +167,7 @@ python iobox_diag.py      # or python3
 - **Fan tab**: auto/manual, on/off thresholds, output channel (`Y`).
 - **IAC tab**: auto / follow / manual duty, target rpm.
 - **Outputs tab**: per-output manual on/off, temp and rpm triggers.
-- **Inputs tab**: D1–D3 and A1–A4 → target output mappings.
+- **Inputs tab**: A1–A4 → target output mappings.
 - **Advanced tab**: 29-bit responder enable/disable/ID, shift-light rpm.
 - **Console**: raw command entry, `?` status button, scrolling RX log — every
   command shown here maps 1:1 to the serial reference below.
@@ -198,9 +191,6 @@ python iobox_diag.py      # or python3
 | `O3 T210` | O3 on when CLT ≥ 210 °F |
 | `O4 R3500` | O4 on when rpm ≥ 3500 |
 | `O5 A` | O5 auto/off (clear mode) |
-| `D1 O2` | switch D1 drives O2 (closed = on) |
-| `D2 F` | switch D2 forces fan |
-| `D3 0` / `D3 N` | clear D3 assignment |
 | `A1 O2 3.5` | A1 above 3.5 V forces O2 |
 | `A2 F 2.0` | A2 above 2.0 V forces fan |
 | `A3 4.2` | set A3 threshold only |

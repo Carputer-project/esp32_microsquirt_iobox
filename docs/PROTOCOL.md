@@ -49,7 +49,7 @@ bus drops. Carried the input states for the in-dash HMI.
 | Byte | Bits | Meaning |
 |------|------|---------|
 | 0 | 0-3 | A1–A4 threshold latches (1 = analog input above its `A<n>` trigger) |
-| 1 | 0-2 | D1–D3 switch state (1 = switch closed / grounded) |
+| 1 | — | reserved (0) |
 | 2 | all | frame counter (rollover) |
 | 3-7 | — | reserved (0) |
 

@@ -26,11 +26,11 @@ needed, only CAN broadcast settings.
   `iacstep` → fully TunerStudio-tunable closed-loop idle), or **Manual**.
 - **O1–O6** — generic low-side outputs (ULN2003A): manual, CLT-temp or RPM
   trigger. O1 defaults to a 7000 rpm shift light.
-- **Inputs drive outputs** — D1–D3 ground switches and A1–A4 analog (0-5 V,
-  0.15 V hysteresis) can force any output or the fan (I/O-box parity).
+- **Inputs drive outputs** — A1–A4 analog (0-5 V, 0.15 V hysteresis) can force any
+  output or the fan (I/O-box parity).
 - **29-bit CAN responder** — MS2/Extra remote-port protocol: MSG_REQ/MSG_CMD on
   table 7; remote idle PWM, remote on/off outputs, remote boost, ADC readback.
-- **`0x710` dash broadcast** — A1–A4 threshold latches + D1–D3 switch states for
+- **`0x710` dash broadcast** — A1–A4 threshold latches for
   the in-dash HMI (indicator/high-beam/brake icons). 10 Hz, always on.
 - **GC9A01A round gauge** — 1.28" 240×240 idle-control display: big IAC duty %,
   RPM / target RPM / CLT / idle mode, fan + CAN status line.
@@ -43,8 +43,8 @@ needed, only CAN broadcast settings.
 
 ```
 esp32_microsquirt_iobox/
-├── firmware/            PlatformIO ESP32 firmware — iobox2 (round display + switches)
-├── firmware-v3/         PlatformIO ESP32 firmware — iobox3 (configurable pins, no display)
+├── firmware/            PlatformIO ESP32 firmware — iobox2 (round display)
+├── firmware-v3/         PlatformIO ESP32 firmware — iobox3 (configurable pins, display opt-in)
 ├── pcb/                 KiCad 8 PCB design (iobox2: schematic, board, project)
 ├── diag/                iobox_diag.py — Windows test/configure app (Python + Tkinter)
 └── docs/
@@ -58,11 +58,11 @@ esp32_microsquirt_iobox/
 
 | | `firmware/` (iobox2) | `firmware-v3/` (iobox3) |
 |---|---|---|
-| Board | ESP32 DevKit + breakout, GC9A01A round display + D1-D3 switches | Bare ESP32-WROOM-32 module board, 7" dash on CAN is the HMI |
+| Board | ESP32 DevKit + breakout, GC9A01A round display | Bare ESP32-WROOM-32 module board, 7" dash on CAN is the HMI |
 | IAC pin | 32 (compile-time) | **runtime-configurable** (`P` command / diag app Pins tab) |
 | Outputs | O1-O6 = 25,26,27,14,13,23 (compile-time) | O1-O7 = 13,12,14,27,26,25,33 default, **runtime-configurable** |
-| Round display | yes | no |
-| Switches | D1-D3 (16,17,18) | none |
+| Round display | yes | opt-in (`P TFT 1`; GPIO19 conflicts with IAC) |
+| Switches | none (removed) | none |
 | Use `P`? | no (fixed pins) | yes |
 
 Both share the same core (CAN broadcast decode, fan, IAC, outputs, engine
@@ -105,7 +105,6 @@ diag app.
 | 25,26,27,14,13,23 | O1–O6 | ULN2003A (O6 = fan by default, `Y<k>` to change) |
 | 2 | Status LED | onboard (CAN heartbeat / fail-safe blink) |
 | 36,39,34,35 | A1–A4 analog 0-5 V | 10k/20k divider (or PCB 12 V→3.3 V dividers) |
-| 16,17,18 | D1–D3 switches | INPUT_PULLUP, active-low to GND |
 | 15,21,22,19 | GC9A01A round display | SCLK / MOSI / CS / DC |
 
 All outputs are **low-side (ground-switching)**, like the real MS I/O-box. Never
@@ -122,7 +121,6 @@ feed 12 V into the ESP32 or SN65HVD230 — a 12 V→5 V buck is mandatory.
 | `T900` | idle target 900 rpm (auto mode) |
 | `S7000` | shift light @7000 rpm |
 | `O3 R3500` / `O4 1` | O3 above 3500 rpm / O4 on |
-| `D1 O2` / `D2 F` | switch D1→O2 / D2→fan |
 | `A1 O2 3.5` / `A2 F 2.0` | analog threshold → output/fan |
 | `Y6` | fan on ULN channel 6 |
 | `R1` / `R0` / `RB5` | 29-bit responder on/off / box ID |
@@ -141,7 +139,7 @@ feed 12 V into the ESP32 or SN65HVD230 — a 12 V→5 V buck is mandatory.
 - **ECU → box**: 11-bit IDs `0x5F0`–`0x5F8` (group N at ID 1520+N), big-endian,
   8 bytes/group, 20 Hz. rpm@6, baro/map/mat/clt@16-22 (×0.1), tps/batt/afr@24-28
   (×0.1), iacstep@54 (×0.392 = duty %).
-- **Box → dash**: `0x710`, byte0 = A1–A4 latches, byte1 = D1–D3, byte2 = counter.
+- **Box → dash**: `0x710`, byte0 = A1–A4 latches, byte1 = reserved, byte2 = counter.
 - **Master → box**: 29-bit extended `MSG_REQ`/`MSG_CMD` (MS2/Extra remote ports).
 
 Full byte maps and the 29-bit responder spec: `docs/PROTOCOL.md`.

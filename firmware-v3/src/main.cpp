@@ -14,11 +14,6 @@ static constexpr uint8_t PIN_A2 = 39;
 static constexpr uint8_t PIN_A3 = 34;
 static constexpr uint8_t PIN_A4 = 35;
 
-static constexpr uint8_t PIN_D1 = 16;
-static constexpr uint8_t PIN_D2 = 17;
-static constexpr uint8_t PIN_D3 = 18;
-static constexpr uint8_t DIG_PINS[3] = { PIN_D1, PIN_D2, PIN_D3 };
-
 static constexpr uint8_t PIN_TFT_SCLK = 15;
 static constexpr uint8_t PIN_TFT_MOSI = 21;
 static constexpr uint8_t PIN_TFT_CS   = 22;
@@ -92,7 +87,7 @@ struct PinMap {
     uint8_t out[7] = { PIN_O1_DEF, PIN_O2_DEF, PIN_O3_DEF, PIN_O4_DEF, PIN_O5_DEF, PIN_O6_DEF, PIN_O7_DEF };
 };
 
-static constexpr uint16_t CFG_MAGIC = 0x4962;
+static constexpr uint16_t CFG_MAGIC = 0x4963;
 
 struct Cfg {
     uint16_t magic = CFG_MAGIC;
@@ -115,7 +110,6 @@ struct Cfg {
     bool    anEnable[4] = { false, false, false, false };
     uint16_t anThresh[4] = { 0, 0, 0, 0 };
     uint8_t anOut[4] = { 0, 0, 0, 0 };
-    uint8_t switchOut[3] = { 0, 0, 0 };
     uint8_t fanOut = 6;
     bool    respEnable = false;
     uint8_t respId = 5;
@@ -196,9 +190,6 @@ static void updateAnalogLatch() {
 
 static bool inputForces(uint8_t target) {
     if (target == 0) return false;
-    for (uint8_t i = 0; i < 3; i++) {
-        if (g_cfg.switchOut[i] == target && digitalRead(DIG_PINS[i]) == LOW) return true;
-    }
     for (uint8_t i = 0; i < 4; i++) {
         if (g_cfg.anOut[i] == target && g_cfg.anEnable[i] && s_anLatch[i]) return true;
     }
@@ -476,9 +467,6 @@ static void dashBroadcast() {
         if (s_anLatch[i]) m.data[0] |= (uint8_t)(1u << i);
     }
     m.data[1] = 0;
-    for (uint8_t i = 0; i < 3; i++) {
-        if (digitalRead(DIG_PINS[i]) == LOW) m.data[1] |= (uint8_t)(1u << i);
-    }
     static uint8_t seq = 0;
     m.data[2] = ++seq;
     m.data[3] = (uint8_t)(s_warnLatched & 0xFF);
@@ -623,9 +611,6 @@ static void reportStatus() {
     for (uint8_t i = 0; i < 4; i++) {
         Serial.printf("a%u=%.2fV(%s) ", i + 1, readAnalogMv(i) / 1000.0f, tgtName(g_cfg.anOut[i]));
     }
-    for (uint8_t i = 0; i < 3; i++) {
-        Serial.printf("d%u=%d(%s) ", i + 1, digitalRead(DIG_PINS[i]) ? 0 : 1, tgtName(g_cfg.switchOut[i]));
-    }
     Serial.println();
     if (g_cfg.eng.enabled) {
         const char* w = topWarnName(s_warnLatched);
@@ -736,21 +721,6 @@ static void handleCommand(const String& line) {
             } else {
                 g_cfg.outMode[n] = OM_MAN;
                 g_cfg.outManual[n] = (mode.toInt() != 0);
-            }
-            saveCfg();
-            break;
-        }
-        case 'D': {
-            if (val.length() < 2) return;
-            uint8_t n = (uint8_t)(val[0] - '1');
-            if (n > 2) return;
-            String m = val.substring(1);
-            m.trim();
-            if (m == "0" || m == "N" || m == "A") g_cfg.switchOut[n] = 0;
-            else if (m == "F") g_cfg.switchOut[n] = 7;
-            else if (m.length() >= 2 && m[0] == 'O') {
-                uint8_t o = (uint8_t)(m[1] - '1');
-                if (o <= 6) g_cfg.switchOut[n] = o + 1;
             }
             saveCfg();
             break;
@@ -876,7 +846,7 @@ static void handleCommand(const String& line) {
             break;
         }
         default:
-            Serial.println("commands: ? | P[IAC <pin>|O<n> <pin>|TFT 0|1|RESET] | F[onTempF|A|1|0] | E[offTempF] | I[duty|A|F] | T[targetRpm] | Y[fanOut 1-7|0] | S[shiftRpm] | O<n>[0|1|T<f>|R<rpm>] | D<n>[0|F|O<k>] | A<n>[0|O<k> <v>|F <v>|<v>] | R[0|1|B<id>] | W[0|1|idle|maxrpm|clt|mat|batt|map|afr|hold|warnout|help]");
+            Serial.println("commands: ? | P[IAC <pin>|O<n> <pin>|TFT 0|1|RESET] | F[onTempF|A|1|0] | E[offTempF] | I[duty|A|F] | T[targetRpm] | Y[fanOut 1-7|0] | S[shiftRpm] | O<n>[0|1|T<f>|R<rpm>] | A<n>[0|O<k> <v>|F <v>|<v>] | R[0|1|B<id>] | W[0|1|idle|maxrpm|clt|mat|batt|map|afr|hold|warnout|help]");
             break;
     }
 }
@@ -916,7 +886,6 @@ void setup() {
         pinMode(ADC_PINS[i], INPUT);
         analogSetPinAttenuation(ADC_PINS[i], ADC_11db);
     }
-    for (uint8_t i = 0; i < 3; i++) pinMode(DIG_PINS[i], INPUT_PULLUP);
 
     twai_general_config_t gen = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)PIN_CAN_TX, (gpio_num_t)PIN_CAN_RX, TWAI_MODE_NORMAL);
     twai_timing_config_t  tim = TWAI_TIMING_CONFIG_500KBITS();

@@ -304,18 +304,6 @@ class App:
         f = ttk.Frame(parent, padding=10)
         targets = ["0"] + [f"O{i}" for i in range(1, 8)] + ["F"]
 
-        g = ttk.LabelFrame(f, text=" Switches D1-D3 (ground, active-low) ")
-        g.pack(fill="x")
-        self.sw_combos = []
-        for n in range(1, 4):
-            ttk.Label(g, text=f"D{n} drives:").grid(row=n - 1, column=0, sticky="e", padx=6, pady=2)
-            cb = ttk.Combobox(g, width=4, values=targets, state="readonly")
-            cb.set("0")
-            cb.grid(row=n - 1, column=1)
-            ttk.Button(g, text="Set", width=5,
-                       command=lambda n=n, c=cb: self.send(f"D{n} {c.get()}")).grid(row=n - 1, column=2, padx=6)
-            self.sw_combos.append(cb)
-
         g2 = ttk.LabelFrame(f, text=" Analog A1-A4 (0-5V threshold) ")
         g2.pack(fill="x", pady=8)
         self.an_rows = []
